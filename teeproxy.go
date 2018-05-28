@@ -37,7 +37,7 @@ var (
 //
 // This turns a inbound request (a request without URL) into an outbound request.
 func setRequestTarget(request *http.Request, target *string) {
-	URL, err := url.Parse("http://" + *target + request.URL.String())
+	URL, err := url.Parse(*target + request.URL.String())
 	if err != nil {
 		log.Println(err)
 	}
@@ -62,15 +62,18 @@ func handleRequest(request *http.Request, timeout time.Duration) (*http.Response
 	}
 	// Do not use http.Client here, because it's higher level and processes
 	// redirects internally, which is not what we want.
-	//client := &http.Client{
-	//	Timeout: timeout,
-	//	Transport: transport,
-	//}
-	//response, err := client.Do(request)
-	response, err := transport.RoundTrip(request)
+	client := &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		log.Println("Request failed:", err)
 	}
+	//response, err := transport.RoundTrip(request)
+	//if err != nil {
+	//	log.Println("Request failed:", err)
+	//}
 	return response
 }
 
