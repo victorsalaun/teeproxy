@@ -57,6 +57,7 @@ func handleRequest(request *http.Request, timeout time.Duration) (*http.Response
 		DisableKeepAlives: *closeConnections,
 		//IdleConnTimeout: timeout,  // go1.8
 		TLSHandshakeTimeout:   timeout,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
 		ResponseHeaderTimeout: timeout,
 		ExpectContinueTimeout: timeout,
 	}
