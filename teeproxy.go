@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"sync"
 )
 
 // Console flags
@@ -88,7 +89,10 @@ type handler struct {
 // ServeHTTP duplicates the incoming request (req) and does the request to the
 // Target and the Alternate target discading the Alternate response
 func (h handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	var wg sync.WaitGroup
+	wg.Add(1)
 	var productionRequest, alternativeRequest *http.Request
+	var alternativeResponseBody string
 	if *forwardClientIP {
 		updateForwardedHeaders(req)
 	}
@@ -100,6 +104,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 					log.Println("Recovered in ServeHTTP(alternate request) from:", r)
 				}
 			}()
+			defer wg.Done()
 
 			setRequestTarget(alternativeRequest, altTarget)
 
@@ -115,7 +120,10 @@ func (h handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				// response, we still need to close the Body reader. Otherwise
 				// the connection stays open and we would soon run out of file
 				// descriptors.
+				body, _ := ioutil.ReadAll(alternateResponse.Body)
+				bodyString := string(body)
 				alternateResponse.Body.Close()
+				alternativeResponseBody = bodyString
 			}
 		}()
 	} else {
@@ -145,9 +153,14 @@ func (h handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		w.WriteHeader(resp.StatusCode)
 
+		wg.Wait()
 		// Forward response body.
 		body, _ := ioutil.ReadAll(resp.Body)
 		w.Write(body)
+		productionResponseBody := string(body)
+
+		println("redirected response: " + alternativeResponseBody)
+		println("main response: " + productionResponseBody)
 	}
 }
 
@@ -249,30 +262,30 @@ func updateForwardedHeaders(request *http.Request) {
 	insertOrExtendXFFHeader(request, remoteIP)
 }
 
-const XFF_HEADER = "X-Forwarded-For"
+const XffHeader = "X-Forwarded-For"
 
 func insertOrExtendXFFHeader(request *http.Request, remoteIP string) {
-	header := request.Header.Get(XFF_HEADER)
+	header := request.Header.Get(XffHeader)
 	if header != "" {
 		// extend
-		request.Header.Set(XFF_HEADER, header+", "+remoteIP)
+		request.Header.Set(XffHeader, header+", "+remoteIP)
 	} else {
 		// insert
-		request.Header.Set(XFF_HEADER, remoteIP)
+		request.Header.Set(XffHeader, remoteIP)
 	}
 }
 
-const FORWARDED_HEADER = "Forwarded"
+const ForwardedHeader = "Forwarded"
 
 // Implementation according to rfc7239
 func insertOrExtendForwardedHeader(request *http.Request, remoteIP string) {
 	extension := "for=" + remoteIP
-	header := request.Header.Get(FORWARDED_HEADER)
+	header := request.Header.Get(ForwardedHeader)
 	if header != "" {
 		// extend
-		request.Header.Set(FORWARDED_HEADER, header+", "+extension)
+		request.Header.Set(ForwardedHeader, header+", "+extension)
 	} else {
 		// insert
-		request.Header.Set(FORWARDED_HEADER, extension)
+		request.Header.Set(ForwardedHeader, extension)
 	}
 }
