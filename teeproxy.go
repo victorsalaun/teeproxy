@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 	"sync"
+	"fmt"
 )
 
 // Console flags
@@ -64,18 +65,18 @@ func handleRequest(request *http.Request, timeout time.Duration) (*http.Response
 	}
 	// Do not use http.Client here, because it's higher level and processes
 	// redirects internally, which is not what we want.
-	client := &http.Client{
+	/*client := &http.Client{
 		Timeout:   timeout,
 		Transport: transport,
 	}
 	response, err := client.Do(request)
 	if err != nil {
 		log.Println("Request failed:", err)
+	}*/
+	response, err := transport.RoundTrip(request)
+	if err != nil {
+		log.Println("Request failed:", err)
 	}
-	//response, err := transport.RoundTrip(request)
-	//if err != nil {
-	//	log.Println("Request failed:", err)
-	//}
 	return response
 }
 
@@ -92,7 +93,8 @@ func (h handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	var productionRequest, alternativeRequest *http.Request
-	var alternativeResponseBody string
+	var alternativeResponse *http.Response
+	var alternativeResponseBodyString string
 	if *forwardClientIP {
 		updateForwardedHeaders(req)
 	}
@@ -123,7 +125,8 @@ func (h handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				body, _ := ioutil.ReadAll(alternateResponse.Body)
 				bodyString := string(body)
 				alternateResponse.Body.Close()
-				alternativeResponseBody = bodyString
+				alternativeResponse = alternateResponse
+				alternativeResponseBodyString = bodyString
 			}
 		}()
 	} else {
@@ -157,10 +160,36 @@ func (h handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		// Forward response body.
 		body, _ := ioutil.ReadAll(resp.Body)
 		w.Write(body)
-		productionResponseBody := string(body)
+		productionResponseBodyString := string(body)
 
-		println("redirected response: " + alternativeResponseBody)
-		println("main response: " + productionResponseBody)
+		compareResponse(*resp, productionResponseBodyString, *alternativeResponse, alternativeResponseBodyString)
+	}
+}
+
+func compareResponse(productionResponse http.Response, productionResponseBodyString string, alternativeResponse http.Response, alternativeResponseBodyString string) {
+	// Compare response status code
+	if strings.Compare(productionResponse.Status, alternativeResponse.Status) != 0 {
+		fmt.Println("NOT SAME")
+		fmt.Println(productionResponse.Status)
+		fmt.Println(alternativeResponse.Status)
+	} else {
+		fmt.Println("STATUS CODE SAME " + productionResponse.Status)
+	}
+	// Compare response body type
+	if strings.Compare(productionResponse.Header.Get("Content-type"), alternativeResponse.Header.Get("Content-type")) != 0 {
+		fmt.Println("NOT SAME")
+		fmt.Println(productionResponse.Header.Get("Content-type"))
+		fmt.Println(alternativeResponse.Header.Get("Content-type"))
+	} else {
+		fmt.Println("CONTENT-TYPE SAME " + productionResponse.Header.Get("Content-type"))
+	}
+	// Compare response body content
+	if strings.Compare(productionResponseBodyString, alternativeResponseBodyString) != 0 {
+		fmt.Println("NOT SAME")
+		fmt.Println("redirected response: " + productionResponseBodyString)
+		fmt.Println("main response: " + alternativeResponseBodyString)
+	} else {
+		fmt.Println("BODY SAME")
 	}
 }
 
