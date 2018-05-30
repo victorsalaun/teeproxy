@@ -16,6 +16,7 @@ import (
 	"time"
 	"sync"
 	"fmt"
+	"compress/gzip"
 )
 
 // Console flags
@@ -122,7 +123,15 @@ func (h handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				// response, we still need to close the Body reader. Otherwise
 				// the connection stays open and we would soon run out of file
 				// descriptors.
-				body, _ := ioutil.ReadAll(alternateResponse.Body)
+				var reader io.ReadCloser
+				switch alternateResponse.Header.Get("Content-Encoding") {
+				case "gzip":
+					reader, _ = gzip.NewReader(alternateResponse.Body)
+					defer reader.Close()
+				default:
+					reader = alternateResponse.Body
+				}
+				body, _ := ioutil.ReadAll(reader)
 				bodyString := string(body)
 				alternateResponse.Body.Close()
 				alternativeResponse = alternateResponse
@@ -150,6 +159,9 @@ func (h handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if resp != nil {
 		defer resp.Body.Close()
 
+		var responseCopy = resp
+		defer responseCopy.Body.Close()
+
 		// Forward response headers.
 		for k, v := range resp.Header {
 			w.Header()[k] = v
@@ -158,38 +170,56 @@ func (h handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 		wg.Wait()
 		// Forward response body.
+
 		body, _ := ioutil.ReadAll(resp.Body)
 		w.Write(body)
-		productionResponseBodyString := string(body)
+
+		resp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+
+		var reader io.ReadCloser
+		switch resp.Header.Get("Content-Encoding") {
+		case "gzip":
+			reader, _ = gzip.NewReader(resp.Body)
+			defer reader.Close()
+		default:
+			reader = resp.Body
+		}
+		body2, _ := ioutil.ReadAll(reader)
+
+
+		productionResponseBodyString := string(body2)
 
 		compareResponse(*resp, productionResponseBodyString, *alternativeResponse, alternativeResponseBodyString)
 	}
 }
 
 func compareResponse(productionResponse http.Response, productionResponseBodyString string, alternativeResponse http.Response, alternativeResponseBodyString string) {
+	fmt.Println("***********************************************")
+	defer fmt.Println("***********************************************")
+	fmt.Println("Request " + productionResponse.Request.URL.String())
 	// Compare response status code
 	if strings.Compare(productionResponse.Status, alternativeResponse.Status) != 0 {
-		fmt.Println("NOT SAME")
+		fmt.Println("KO STATUS CODE")
 		fmt.Println(productionResponse.Status)
 		fmt.Println(alternativeResponse.Status)
 	} else {
-		fmt.Println("STATUS CODE SAME " + productionResponse.Status)
+		fmt.Println("OK STATUS CODE " + productionResponse.Status)
 	}
 	// Compare response body type
 	if strings.Compare(productionResponse.Header.Get("Content-type"), alternativeResponse.Header.Get("Content-type")) != 0 {
-		fmt.Println("NOT SAME")
+		fmt.Println("KO CONTENT-TYPE")
 		fmt.Println(productionResponse.Header.Get("Content-type"))
 		fmt.Println(alternativeResponse.Header.Get("Content-type"))
 	} else {
-		fmt.Println("CONTENT-TYPE SAME " + productionResponse.Header.Get("Content-type"))
+		fmt.Println("OK CONTENT-TYPE " + productionResponse.Header.Get("Content-type"))
 	}
 	// Compare response body content
 	if strings.Compare(productionResponseBodyString, alternativeResponseBodyString) != 0 {
-		fmt.Println("NOT SAME")
-		fmt.Println("redirected response: " + productionResponseBodyString)
-		fmt.Println("main response: " + alternativeResponseBodyString)
+		fmt.Println("KO BODY")
+		fmt.Println("main response: " + productionResponseBodyString)
+		fmt.Println("redirected response: " + alternativeResponseBodyString)
 	} else {
-		fmt.Println("BODY SAME")
+		fmt.Println("OK BODY " + productionResponseBodyString)
 	}
 }
 
