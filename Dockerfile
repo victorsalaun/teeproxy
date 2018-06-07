@@ -9,3 +9,5 @@ RUN apk add --no-cache go musl-dev \
     && apk del go musl-dev
 
 ENTRYPOINT ["/usr/local/bin/teeproxy"]
+
+EXPOSE 8888 9000 9001
