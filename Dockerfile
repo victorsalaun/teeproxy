@@ -2,7 +2,7 @@ FROM alpine:latest
 
 COPY teeproxy.go /usr/local/src/
 
-RUN apk add --no-cache go musl-dev \
+RUN apk add go musl-dev \
     && cd /usr/local/src/ \
     && CGO_ENABLED=0 go build teeproxy.go \
     && mv teeproxy /usr/local/bin/ \
